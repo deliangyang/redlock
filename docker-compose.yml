@@ -1,0 +1,17 @@
+version: '2.0'
+services:
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+  redis01:
+    image: redis:alpine
+    container_name: redis01
+    ports:
+      - "6380:6380"
+  redis02:
+      image: redis:alpine
+      container_name: redis02
+      ports:
+        - "6381:6381"
