@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"strconv"
 	"log"
+	"fmt"
 )
 
 const entityStateDown = 0
@@ -18,92 +19,97 @@ type redisEntity struct {
 }
 type redisPool struct {
 	key string
-	alive int
 	pool []redisEntity
 	availablePool int
 	expireTime time.Duration
-}
-
-type MultiNodeRedLock interface {
-	Lock()
-	UnLock()
 }
 
 func (entity *redisEntity) setState(state int32) {
 	entity.state = state
 }
 
-func Multi(entities []redisEntity) redisPool {
-	rds := redisPool{
-		alive: 0,
-		pool: entities,
+func Multi(expireTime time.Duration, config ...string) redisPool {
+	length := len(config)
+	entities := make([]redisEntity, length)
+	for i, conf := range config {
+		entities[i] = redisEntity{
+			redis: redis.NewClient(&redis.Options{
+				Addr: conf,
+			}),
+			state: entityStateAlive,
+		}
 	}
-	//rds.check()
+	rds := redisPool{
+		pool: entities,
+		expireTime: expireTime,
+	}
 	//go rds.watch()
 	return rds
 }
 
-func (rds *redisPool) setKey(key string) {
+func (rds *redisPool) SetKey(key string) {
 	rds.key = key
 	s, err := strconv.Atoi(key)
 	if err != nil {
 		log.Fatal(err)
 	}
-	half := rds.alive / 2
+	length := len(rds.pool)
+	half := length / 2
+	if length - half * 2 == 1 {
+		half++
+	}
+	fmt.Println(half)
 	i := 0
+	rds.availablePool = 0
 	for ; i < half; i++ {
-		rds.availablePool += 2 ^ ((s / rds.alive + 1) % len(rds.pool))
+		rds.availablePool += 2 ^ ((s / length + i) % length)
 	}
 }
 
 func (rds *redisPool) Lock(timeout int64) error {
-
-	half := rds.alive / 2
-
-	if half <= 0 {
-		errors.New("no alive redis node")
+	if rds.key == "" {
+		errors.New("empty key")
 	}
+
 	operateTimeout := time.Now().Unix() + timeout
 	var count int
-
-	var available int
-	for i, entity := range rds.pool {
-		if count >= half {
-			break
-		}
-		if entity.state == entityStateAlive {
-			available += 2 ^ i
-		}
-	}
-
-	if available == 0 {
-		errors.New("no alive redis node")
-	}
-
-	count = 0
+	fmt.Println(rds.availablePool)
 	for {
+		count = 0
 		for i, entity := range rds.pool {
-			if i & available == i {
-				expireAt, _ := entity.redis.Get(rds.key).Int64()
-				if true == entity.redis.SetNX(rds.key, operateTimeout, rds.expireTime).Val() {
-					count++
-				} else if expireAt < time.Now().Unix() {				// 过期
-					errors.New("time out")
-				}
+			expireAt, _ := entity.redis.Get(rds.key).Int64()
+			if true == entity.redis.SetNX(rds.key, operateTimeout, rds.expireTime).Val() {
+				fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+				count++
+			} else if expireAt < time.Now().Unix() {				// 过期
+				fmt.Println(expireAt, " time out: ", expireAt - time.Now().Unix())
+				errors.New("time out")
+			}
+			if i & rds.availablePool == i {
+				fmt.Println("i => ", i)
+
 			}
 		}
-
-		if count == 0 {
+		fmt.Println("xxxxxx:", count)
+		if count == 3 {
 			return nil
 		}
 
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond)
 	}
 
 }
 
+/**
+ * 释放锁
+ */
 func (rds *redisPool) UnLock() {
-
+	fmt.Println("key unlocked!!!")
+	for i, entity := range rds.pool {
+		entity.redis.Del(rds.key)
+		if i & rds.availablePool == i {
+		}
+	}
 }
 
 /**
@@ -129,5 +135,4 @@ func (rds *redisPool) check()  {
 			rds.pool[i].setState(entityStateDown)
 		}
 	}
-	rds.alive = alive
 }

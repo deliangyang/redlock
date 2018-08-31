@@ -40,6 +40,42 @@ func TestRedLock(t *testing.T) {
 	time.Sleep(time.Second * 10)
 }
 
+func TestSum(t *testing.T) {
+	rds := redis.NewClient(&redis.Options{
+		Addr: "www.ydl.com:6379",
+	})
+
+	l := redlock.New("test123", rds, time.Second * 30)
+	i := 0
+	sum := 0
+	go func() {
+		for ; i < 20; i++ {
+			l.Lock(30)
+			sum += i
+			l.UnLock()
+		}
+	}()
+
+	j := 20
+	go func() {
+		for ; j < 40; j++ {
+			l.Lock(30)
+			sum += j
+			l.UnLock()
+		}
+	}()
+
+	Sum := 0
+	x := 0
+	for ; x < 40; x++ {
+		Sum += x
+	}
+	fmt.Println("x sum: ", Sum)
+
+	time.Sleep(time.Second)
+	fmt.Println("sum: ", sum)
+}
+
 func test(l *redlock.Container, user *User, name string)  {
 	l.Lock(30)
 	fmt.Println("set name:", name)

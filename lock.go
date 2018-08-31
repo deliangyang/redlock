@@ -21,6 +21,7 @@ type Container struct {
 type RedLock interface {
 	Lock(timeout int) error
 	UnLock()
+	setKey(key string)
 }
 
 func New(key string, redis *redis.Client, expireTime time.Duration) *Container {
