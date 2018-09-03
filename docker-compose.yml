@@ -8,10 +8,12 @@ services:
   redis01:
     image: redis:alpine
     container_name: redis01
+    volumes:
+      - ./conf/redis6380.conf:/etc/redis/redis.conf
     ports:
-      - "6380:6380"
+      - "6380:6379"
   redis02:
-      image: redis:alpine
-      container_name: redis02
-      ports:
-        - "6381:6381"
+    image: redis:alpine
+    container_name: redis02
+    ports:
+      - "6381:6379"

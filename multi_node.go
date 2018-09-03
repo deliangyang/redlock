@@ -3,14 +3,14 @@ package redlock
 import (
 	"github.com/go-redis/redis"
 	"time"
-	"github.com/pkg/errors"
+	"fmt"
+	"errors"
 	"strconv"
 	"log"
-	"fmt"
 )
 
-const entityStateDown = 0
-const entityStateAlive = 1
+const entityStateDown = 0			// redis 状态：关闭
+const entityStateAlive = 1			// redis 状态：存活
 
 type redisEntity struct {
 	redis *redis.Client
@@ -43,10 +43,12 @@ func Multi(expireTime time.Duration, config ...string) redisPool {
 		pool: entities,
 		expireTime: expireTime,
 	}
-	//go rds.watch()
 	return rds
 }
 
+/**
+ * 根据key分布到不同的一半实例上
+ */
 func (rds *redisPool) SetKey(key string) {
 	rds.key = key
 	s, err := strconv.Atoi(key)
@@ -58,7 +60,6 @@ func (rds *redisPool) SetKey(key string) {
 	if length - half * 2 == 1 {
 		half++
 	}
-	fmt.Println(half)
 	i := 0
 	rds.availablePool = 0
 	for ; i < half; i++ {
@@ -66,33 +67,33 @@ func (rds *redisPool) SetKey(key string) {
 	}
 }
 
+/**
+ * 加锁
+ */
 func (rds *redisPool) Lock(timeout int64) error {
 	if rds.key == "" {
 		errors.New("empty key")
 	}
+	length := len(rds.pool)
+	half := length / 2
 
 	operateTimeout := time.Now().Unix() + timeout
 	var count int
-	fmt.Println(rds.availablePool)
 	for {
 		count = 0
 		for i, entity := range rds.pool {
-			expireAt, _ := entity.redis.Get(rds.key).Int64()
-			if true == entity.redis.SetNX(rds.key, operateTimeout, rds.expireTime).Val() {
-				fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-				count++
-			} else if expireAt < time.Now().Unix() {				// 过期
-				fmt.Println(expireAt, " time out: ", expireAt - time.Now().Unix())
-				errors.New("time out")
-			}
 			if i & rds.availablePool == i {
-				fmt.Println("i => ", i)
-
+				expireAt, _ := entity.redis.Get(rds.key).Int64()
+				if true == entity.redis.SetNX(rds.key, operateTimeout, rds.expireTime).Val() {
+					count++
+				} else if expireAt < time.Now().Unix() {				// 过期
+					fmt.Println(expireAt, " time out: ", expireAt - time.Now().Unix())
+					errors.New("time out")
+				}
+				if count == half {
+					return nil
+				}
 			}
-		}
-		fmt.Println("xxxxxx:", count)
-		if count == 3 {
-			return nil
 		}
 
 		time.Sleep(time.Millisecond)
@@ -104,10 +105,9 @@ func (rds *redisPool) Lock(timeout int64) error {
  * 释放锁
  */
 func (rds *redisPool) UnLock() {
-	fmt.Println("key unlocked!!!")
 	for i, entity := range rds.pool {
-		entity.redis.Del(rds.key)
 		if i & rds.availablePool == i {
+			entity.redis.Del(rds.key)
 		}
 	}
 }
@@ -122,12 +122,16 @@ func (rds *redisPool) watch() {
 	}
 }
 
+/**
+ *　检查机器
+ */
 func (rds *redisPool) check()  {
 	i := 0
 	alive := 0
 	length := len(rds.pool)
 	for ; i < length; i++ {
 		check := rds.pool[i].redis.Ping().String()
+		fmt.Println(check)
 		if check == "Pong" {
 			alive++
 			rds.pool[i].setState(entityStateAlive)

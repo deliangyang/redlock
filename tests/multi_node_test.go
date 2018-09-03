@@ -10,7 +10,7 @@ import (
 func TestMultiNode(t *testing.T) {
 	pool := redlock.Multi(time.Second * 300, "www.ydl.com:6379", "www.ydl.com:6380", "www.ydl.com:6381")
 
-	pool.SetKey("1232344")
+	pool.SetKey("123")
 	i := 0
 	sum := 0
 	go func() {
